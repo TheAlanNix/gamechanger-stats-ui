@@ -1,0 +1,351 @@
+"use client";
+
+import { useState, useEffect, useMemo } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { BattingTable } from "@/components/batting-table";
+import { PitchingTable } from "@/components/pitching-table";
+import { FieldingTable } from "@/components/fielding-table";
+import { Leaderboards } from "@/components/leaderboards";
+import { BattingStats, PitchingStats, FieldingStats, TeamStats } from "@/types/stats";
+
+interface Organization {
+    id: string;
+    name: string;
+    sport: string;
+    season_name: string;
+    season_year: number;
+    avatar_url?: string;
+}
+
+export default function Home() {
+    const [organizations, setOrganizations] = useState<Organization[]>([]);
+    const [selectedOrgId, setSelectedOrgId] = useState<string>("");
+    const [battingStats, setBattingStats] = useState<BattingStats[]>([]);
+    const [pitchingStats, setPitchingStats] = useState<PitchingStats[]>([]);
+    const [fieldingStats, setFieldingStats] = useState<FieldingStats[]>([]);
+    const [teamStats, setTeamStats] = useState<TeamStats[]>([]);
+    const [loadingOrgs, setLoadingOrgs] = useState(true);
+    const [loadingStats, setLoadingStats] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [minPAThreshold, setMinPAThreshold] = useState(20);
+    const [minIPThreshold, setMinIPThreshold] = useState(20);
+    const [minFOThreshold, setMinFOThreshold] = useState(20);
+
+    // Calculate league averages
+    const avgPlateAppearances = useMemo(() => {
+        if (!battingStats || battingStats.length === 0) return 0;
+        const playersWithPA = battingStats.filter(p => p.plate_appearances > 0);
+        if (playersWithPA.length === 0) return 0;
+        const total = playersWithPA.reduce((sum, player) => sum + player.plate_appearances, 0);
+        return total / playersWithPA.length;
+    }, [battingStats]);
+
+    const avgInningsPitched = useMemo(() => {
+        if (!pitchingStats || pitchingStats.length === 0) return 0;
+        const playersWithIP = pitchingStats.filter(p => {
+            const ip = String(p.innings_pitched);
+            const parts = ip.split('.');
+            const whole = parseInt(parts[0]) || 0;
+            const outs = parseInt(parts[1]) || 0;
+            return (whole + (outs / 3)) > 0;
+        });
+        if (playersWithIP.length === 0) return 0;
+        const total = playersWithIP.reduce((sum, player) => {
+            const ip = String(player.innings_pitched);
+            const parts = ip.split('.');
+            const whole = parseInt(parts[0]) || 0;
+            const outs = parseInt(parts[1]) || 0;
+            return sum + whole + (outs / 3);
+        }, 0);
+        return total / playersWithIP.length;
+    }, [pitchingStats]);
+
+    const avgFieldingOpportunities = useMemo(() => {
+        if (!fieldingStats || fieldingStats.length === 0) return 0;
+        const playersWithFO = fieldingStats.filter(p => p.fielding_opportunities > 0);
+        if (playersWithFO.length === 0) return 0;
+        const total = playersWithFO.reduce((sum, player) => sum + player.fielding_opportunities, 0);
+        return total / playersWithFO.length;
+    }, [fieldingStats]);
+
+    const minPA = useMemo(() => (avgPlateAppearances * minPAThreshold) / 100, [avgPlateAppearances, minPAThreshold]);
+    const minIP = useMemo(() => (avgInningsPitched * minIPThreshold) / 100, [avgInningsPitched, minIPThreshold]);
+    const minFO = useMemo(() => (avgFieldingOpportunities * minFOThreshold) / 100, [avgFieldingOpportunities, minFOThreshold]);
+
+    // Fetch organizations on mount
+    useEffect(() => {
+        fetchOrganizations();
+    }, []);
+
+    // Fetch stats when organization is selected
+    useEffect(() => {
+        if (selectedOrgId) {
+            fetchStats(selectedOrgId);
+        }
+    }, [selectedOrgId]);
+
+    const fetchOrganizations = async () => {
+        try {
+            setLoadingOrgs(true);
+            setError(null);
+
+            const response = await fetch('/api/organizations');
+
+            if (!response.ok) {
+                throw new Error("Failed to fetch organizations");
+            }
+
+            const data = await response.json();
+            setOrganizations(data);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "An error occurred");
+        } finally {
+            setLoadingOrgs(false);
+        }
+    };
+
+    const fetchStats = async (orgId: string) => {
+        try {
+            setLoadingStats(true);
+            setError(null);
+
+            const response = await fetch(`/api/stats/${orgId}`);
+
+            if (!response.ok) {
+                throw new Error("Failed to fetch stats");
+            }
+
+            const data = await response.json();
+
+            setBattingStats(data.batting);
+            setPitchingStats(data.pitching);
+            setFieldingStats(data.fielding);
+            setTeamStats(data.teams || []);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "An error occurred");
+        } finally {
+            setLoadingStats(false);
+        }
+    };
+
+    const selectedOrg = organizations.find(org => org.id === selectedOrgId);
+
+    return (
+        <main className="container mx-auto py-10">
+            <div className="mb-8">
+                <h1 className="text-4xl font-bold mb-2">GameChanger League Stats</h1>
+                <p className="text-muted-foreground">
+                    View player batting, pitching, and fielding statistics
+                </p>
+            </div>
+
+            {loadingOrgs ? (
+                <Card>
+                    <CardContent className="pt-6">
+                        <p className="text-center text-muted-foreground">Loading organizations...</p>
+                    </CardContent>
+                </Card>
+            ) : error ? (
+                <Card>
+                    <CardContent className="pt-6">
+                        <p className="text-center text-destructive">Error: {error}</p>
+                        <p className="text-center text-sm text-muted-foreground mt-2">
+                            Make sure the backend server is running on port 8000
+                        </p>
+                    </CardContent>
+                </Card>
+            ) : organizations.length === 0 ? (
+                <Card>
+                    <CardContent className="pt-6">
+                        <p className="text-center text-muted-foreground">No organizations found</p>
+                    </CardContent>
+                </Card>
+            ) : (
+                <>
+                    <Card className="mb-6">
+                        <CardHeader>
+                            <CardTitle>Select League/Organization</CardTitle>
+                            <CardDescription>
+                                Choose a league to view player statistics
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <Select value={selectedOrgId} onValueChange={setSelectedOrgId}>
+                                <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="Select a league">
+                                        {selectedOrg && (
+                                            <div className="flex items-center gap-2">
+                                                {selectedOrg.avatar_url && (
+                                                    <img
+                                                        src={selectedOrg.avatar_url}
+                                                        alt={selectedOrg.name}
+                                                        className="w-8 rounded"
+                                                        crossOrigin="anonymous"
+                                                    />
+                                                )}
+                                                <span>
+                                                    {selectedOrg.name} - {selectedOrg.season_name.charAt(0).toUpperCase() + selectedOrg.season_name.slice(1)} {selectedOrg.season_year}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {organizations.map((org) => (
+                                        <SelectItem key={org.id} value={org.id}>
+                                            {org.name} - {org.season_name.charAt(0).toUpperCase() + org.season_name.slice(1)} {org.season_year}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {selectedOrg && (
+                                <div className="mt-4 flex items-start gap-3">
+                                    {selectedOrg.avatar_url && (
+                                        <img
+                                            src={selectedOrg.avatar_url}
+                                            alt={selectedOrg.name}
+                                            className="w-16 rounded" crossOrigin="anonymous" />
+                                    )}
+                                    <div className="text-sm text-muted-foreground">
+                                        <p><strong>Selected:</strong> {selectedOrg.name}</p>
+                                        <p><strong>Sport:</strong> {selectedOrg.sport}</p>
+                                        <p><strong>Season:</strong> {selectedOrg.season_name} {selectedOrg.season_year}</p>
+                                    </div>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {loadingStats ? (
+                        <Card>
+                            <CardContent className="pt-6">
+                                <p className="text-center text-muted-foreground">Loading stats...</p>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <Tabs defaultValue="leaderboards" className="space-y-4">
+                            <TabsList className="grid w-full grid-cols-4 lg:w-[500px]">
+                                <TabsTrigger value="leaderboards">Leaders</TabsTrigger>
+                                <TabsTrigger value="batting">Batting</TabsTrigger>
+                                <TabsTrigger value="pitching">Pitching</TabsTrigger>
+                                <TabsTrigger value="fielding">Fielding</TabsTrigger>
+                            </TabsList>
+
+                            <TabsContent value="leaderboards">
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle>League Leaderboards</CardTitle>
+                                        <CardDescription>
+                                            Top performers across key statistical categories
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        {(battingStats && battingStats.length > 0) || (pitchingStats && pitchingStats.length > 0) ? (
+                                            <Leaderboards
+                                                battingStats={battingStats}
+                                                pitchingStats={pitchingStats}
+                                                teamStats={teamStats}
+                                                minPAThreshold={minPAThreshold}
+                                                setMinPAThreshold={setMinPAThreshold}
+                                                minIPThreshold={minIPThreshold}
+                                                setMinIPThreshold={setMinIPThreshold}
+                                                avgPlateAppearances={avgPlateAppearances}
+                                                avgInningsPitched={avgInningsPitched}
+                                                minPA={minPA}
+                                                minIP={minIP}
+                                            />
+                                        ) : (
+                                            <p className="text-center text-muted-foreground py-8">
+                                                No stats available
+                                            </p>
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            </TabsContent>
+
+                            <TabsContent value="batting">
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle>Player Batting Statistics</CardTitle>
+                                        <CardDescription>
+                                            Offensive performance metrics for all players
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        {battingStats && battingStats.length > 0 ? (
+                                            <BattingTable
+                                                stats={battingStats}
+                                                minPA={minPA}
+                                                minPAThreshold={minPAThreshold}
+                                                setMinPAThreshold={setMinPAThreshold}
+                                                avgPlateAppearances={avgPlateAppearances}
+                                            />
+                                        ) : (
+                                            <p className="text-center text-muted-foreground py-8">
+                                                No batting stats available
+                                            </p>
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            </TabsContent>
+
+                            <TabsContent value="pitching">
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle>Player Pitching Statistics</CardTitle>
+                                        <CardDescription>
+                                            Pitching performance metrics for all players
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        {pitchingStats && pitchingStats.length > 0 ? (
+                                            <PitchingTable
+                                                stats={pitchingStats}
+                                                minIP={minIP}
+                                                minIPThreshold={minIPThreshold}
+                                                setMinIPThreshold={setMinIPThreshold}
+                                                avgInningsPitched={avgInningsPitched}
+                                            />
+                                        ) : (
+                                            <p className="text-center text-muted-foreground py-8">
+                                                No pitching stats available
+                                            </p>
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            </TabsContent>
+
+                            <TabsContent value="fielding">
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle>Player Fielding Statistics</CardTitle>
+                                        <CardDescription>
+                                            Defensive performance metrics for all players
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        {fieldingStats && fieldingStats.length > 0 ? (
+                                            <FieldingTable
+                                                stats={fieldingStats}
+                                                minFO={minFO}
+                                                minFOThreshold={minFOThreshold}
+                                                setMinFOThreshold={setMinFOThreshold}
+                                                avgFieldingOpportunities={avgFieldingOpportunities}
+                                            />
+                                        ) : (
+                                            <p className="text-center text-muted-foreground py-8">
+                                                No fielding stats available
+                                            </p>
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            </TabsContent>
+                        </Tabs>
+                    )}
+                </>
+            )}
+        </main>
+    );
+}
