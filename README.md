@@ -9,6 +9,7 @@ A modern web application for viewing player and team statistics from GameChanger
 - **Filtering**: Adjustable minimum thresholds for plate appearances, innings pitched, and fielding opportunities
 - **Team Stats**: View runs scored and runs allowed per game for each team
 - **Organization Selection**: Easily switch between different leagues/organizations
+- **Dynamic Token Updates**: Update your GameChanger token through the UI without restarting the server
 - **Responsive Design**: Clean, modern UI built with Next.js and shadcn/ui
 
 ## Project Structure
@@ -50,10 +51,12 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-3. Set your GameChanger token as an environment variable:
+3. (Optional) Set your GameChanger token as an environment variable:
 ```bash
 export GC_TOKEN="your_token_here"  # On Windows: set GC_TOKEN=your_token_here
 ```
+
+**Note**: You can start the backend without a token and add it later through the UI.
 
 4. Run the backend server:
 ```bash
@@ -91,13 +94,17 @@ python main.py
 npm run dev
 ```
 
-3. Open http://localhost:3000 in your browser
-4. Select an organization from the dropdown
-5. Explore the stats across different tabs:
+If prompted, enter your GameChanger token (you can get it anytime from gc.com cookies)
+3. Select an organization from the dropdown
+4. Explore the stats across different tabs:
    - **Leaders**: Top performers and team stats
    - **Batting**: Individual batting statistics
    - **Pitching**: Individual pitching statistics
    - **Fielding**: Individual fielding statistics
+
+### Token Management
+
+If your token expires or becomes invalid, the app will automatically prompt you to enter a new one. You don't need to restart the server - just paste your new token in the dialog that appears.
 
 ## Features in Detail
 
@@ -127,7 +134,8 @@ All stats are calculated from GameChanger's API:
 3. Calculates derived statistics (AVG, ERA, WHIP, etc.)
 4. Fetches team records for team-level stats
 5. Results cached (1 hour for orgs, 10 minutes for stats)
-
+POST /api/token` - Update the GameChanger API token dynamically
+- `
 ## API Endpoints
 
 - `GET /api/organizations` - Get all available organizations
@@ -154,4 +162,6 @@ All stats are calculated from GameChanger's API:
 - Strike percentage calculated from GameChanger's `S%` stat
 - Games pitched uses `GP:P` key, games fielded uses `GP:F`
 - Team avatars displayed throughout the UI
+- Dynamic token updates without server restart
+- Automatic authentication error detection and recovery
 - Unknown players filtered out automatically

@@ -4,8 +4,10 @@ from functools import wraps
 from typing import Optional
 
 from gamechanger_client import GameChangerClient
+from gamechanger_client.exceptions import ApiError
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 app = FastAPI(title="GameChanger Stats API")
 
@@ -47,14 +49,20 @@ def cache_with_ttl(ttl_seconds=300):
 gc_client: Optional[GameChangerClient] = None
 
 
+class TokenUpdate(BaseModel):
+    token: str
+
+
+class AuthenticationError(Exception):
+    """Custom exception for authentication errors"""
+    pass
+
+
 def check_auth_error(response_data):
     """Check if response contains authentication error"""
     if isinstance(response_data, dict):
         if response_data.get('missing_authentication') or 'missing user authentication' in response_data.get('message', '').lower():
-            raise HTTPException(
-                status_code=401,
-                detail="Authentication failed. Please update your GC_TOKEN environment variable with a valid GameChanger token and restart the server."
-            )
+            raise AuthenticationError("Token expired or invalid")
 
 
 @app.on_event("startup")
@@ -86,6 +94,46 @@ async def health():
     }
 
 
+@app.post("/api/token")
+async def update_token(token_data: TokenUpdate):
+    """Update the GameChanger API token dynamically"""
+    global gc_client, cache_store
+    
+    try:
+        # Create new client with the provided token
+        new_client = GameChangerClient(token=token_data.token)
+        
+        # Test the token by making a simple API call
+        test_response = new_client.me.teams()
+        check_auth_error(test_response)
+        
+        # If successful, update the global client and clear cache
+        gc_client = new_client
+        cache_store.clear()
+        
+        return {
+            "status": "success",
+            "message": "Token updated successfully"
+        }
+    except ApiError as e:
+        if e.status_code == 401:
+            raise HTTPException(
+                status_code=401,
+                detail={"auth_error": True, "message": "Invalid token provided"}
+            )
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except AuthenticationError:
+        raise HTTPException(
+            status_code=401,
+            detail={"auth_error": True, "message": "Invalid token provided"}
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+
+
 @app.get("/api/organizations")
 @cache_with_ttl(ttl_seconds=3600)  # Cache for 1 hour
 async def get_organizations():
@@ -97,6 +145,23 @@ async def get_organizations():
         # Get all teams for the user
         teams = gc_client.me.teams()
         check_auth_error(teams)
+    except ApiError as e:
+        # Check if it's an authentication error
+        if e.status_code == 401:
+            raise HTTPException(
+                status_code=401,
+                detail={"auth_error": True, "message": "Authentication failed. Token may be expired or invalid."}
+            )
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except AuthenticationError:
+        raise HTTPException(
+            status_code=401,
+            detail={"auth_error": True, "message": "Authentication failed. Token may be expired or invalid."}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    try:
         
         # Extract unique organization IDs from teams
         organization_ids = set()
@@ -146,6 +211,18 @@ async def get_organizations():
         org_list.sort(key=lambda x: (-x.get('season_year', 0), x.get('name', '')))
         
         return org_list
+    except ApiError as e:
+        if e.status_code == 401:
+            raise HTTPException(
+                status_code=401,
+                detail={"auth_error": True, "message": "Authentication failed. Token may be expired or invalid."}
+            )
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except AuthenticationError:
+        raise HTTPException(
+            status_code=401,
+            detail={"auth_error": True, "message": "Authentication failed. Token may be expired or invalid."}
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -179,6 +256,22 @@ async def get_all_stats(organization_id: str):
         # Get all teams in the organization
         teams_data = gc_client.organizations.teams(organization_id=organization_id)
         check_auth_error(teams_data)
+    except ApiError as e:
+        if e.status_code == 401:
+            raise HTTPException(
+                status_code=401,
+                detail={"auth_error": True, "message": "Authentication failed. Token may be expired or invalid."}
+            )
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except AuthenticationError:
+        raise HTTPException(
+            status_code=401,
+            detail={"auth_error": True, "message": "Authentication failed. Token may be expired or invalid."}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    try:
         
         batting_stats = []
         pitching_stats = []
@@ -384,6 +477,18 @@ async def get_all_stats(organization_id: str):
             "fielding": fielding_stats,
             "teams": team_stats
         }
+    except ApiError as e:
+        if e.status_code == 401:
+            raise HTTPException(
+                status_code=401,
+                detail={"auth_error": True, "message": "Authentication failed. Token may be expired or invalid."}
+            )
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except AuthenticationError:
+        raise HTTPException(
+            status_code=401,
+            detail={"auth_error": True, "message": "Authentication failed. Token may be expired or invalid."}
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

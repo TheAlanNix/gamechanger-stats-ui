@@ -4,6 +4,10 @@ import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { BattingTable } from "@/components/batting-table";
 import { PitchingTable } from "@/components/pitching-table";
 import { FieldingTable } from "@/components/fielding-table";
@@ -32,6 +36,12 @@ export default function Home() {
     const [minPAThreshold, setMinPAThreshold] = useState(20);
     const [minIPThreshold, setMinIPThreshold] = useState(20);
     const [minFOThreshold, setMinFOThreshold] = useState(20);
+
+    // Token update dialog state
+    const [showTokenDialog, setShowTokenDialog] = useState(false);
+    const [newToken, setNewToken] = useState("");
+    const [tokenError, setTokenError] = useState<string | null>(null);
+    const [updatingToken, setUpdatingToken] = useState(false);
 
     // Calculate league averages
     const avgPlateAppearances = useMemo(() => {
@@ -86,12 +96,28 @@ export default function Home() {
         }
     }, [selectedOrgId]);
 
+    const handleAuthError = (errorDetail: any) => {
+        // Check if the error response indicates an auth error
+        if (errorDetail && errorDetail.auth_error) {
+            setShowTokenDialog(true);
+            return true;
+        }
+        return false;
+    };
+
     const fetchOrganizations = async () => {
         try {
             setLoadingOrgs(true);
             setError(null);
 
             const response = await fetch('/api/organizations');
+
+            if (response.status === 401) {
+                const errorData = await response.json();
+                if (handleAuthError(errorData.detail)) {
+                    return;
+                }
+            }
 
             if (!response.ok) {
                 throw new Error("Failed to fetch organizations");
@@ -113,6 +139,13 @@ export default function Home() {
 
             const response = await fetch(`/api/stats/${orgId}`);
 
+            if (response.status === 401) {
+                const errorData = await response.json();
+                if (handleAuthError(errorData.detail)) {
+                    return;
+                }
+            }
+
             if (!response.ok) {
                 throw new Error("Failed to fetch stats");
             }
@@ -130,10 +163,104 @@ export default function Home() {
         }
     };
 
+    const handleTokenUpdate = async () => {
+        if (!newToken.trim()) {
+            setTokenError("Please enter a token");
+            return;
+        }
+
+        try {
+            setUpdatingToken(true);
+            setTokenError(null);
+
+            const response = await fetch('/api/token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ token: newToken.trim() }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail?.message || errorData.detail || 'Failed to update token');
+            }
+
+            // Token updated successfully
+            setShowTokenDialog(false);
+            setNewToken("");
+            setTokenError(null);
+
+            // Refresh organizations
+            fetchOrganizations();
+        } catch (err) {
+            setTokenError(err instanceof Error ? err.message : "Failed to update token");
+        } finally {
+            setUpdatingToken(false);
+        }
+    };
+
     const selectedOrg = organizations.find(org => org.id === selectedOrgId);
 
     return (
         <main className="container mx-auto py-10">
+            {/* Token Update Dialog */}
+            <Dialog open={showTokenDialog} onOpenChange={setShowTokenDialog}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Update GameChanger Token</DialogTitle>
+                        <DialogDescription>
+                            Your GameChanger token has expired or is invalid. Please enter a new token to continue.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="token">GameChanger Token</Label>
+                            <Input
+                                id="token"
+                                type="text"
+                                placeholder="Paste your token here"
+                                value={newToken}
+                                onChange={(e) => setNewToken(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        handleTokenUpdate();
+                                    }
+                                }}
+                            />
+                            {tokenError && (
+                                <p className="text-sm text-destructive">{tokenError}</p>
+                            )}
+                        </div>
+                        <div className="text-sm text-muted-foreground space-y-2">
+                            <p><strong>To get your token:</strong></p>
+                            <ol className="list-decimal list-inside space-y-1 ml-2">
+                                <li>Log into gc.com in your browser</li>
+                                <li>Open Developer Tools (F12)</li>
+                                <li>Go to Application/Storage → Cookies</li>
+                                <li>Find the &quot;token&quot; cookie and copy its value</li>
+                            </ol>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setShowTokenDialog(false);
+                                setNewToken("");
+                                setTokenError(null);
+                            }}
+                            disabled={updatingToken}
+                        >
+                            Cancel
+                        </Button>
+                        <Button onClick={handleTokenUpdate} disabled={updatingToken}>
+                            {updatingToken ? "Updating..." : "Update Token"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <div className="mb-8">
                 <h1 className="text-4xl font-bold mb-2">GameChanger League Stats</h1>
                 <p className="text-muted-foreground">
