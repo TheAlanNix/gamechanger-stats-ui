@@ -71,6 +71,20 @@ export function PitchingTable({ stats, minIP = 0, minIPThreshold = 20, setMinIPT
         return isNaN(num) ? "0.000" : num.toFixed(3);
     };
 
+    const formatStrictness = (strictness?: number): string => {
+        if (strictness === undefined || strictness === null) return "";
+        if (strictness < -0.3) return "🟢"; // Lenient
+        if (strictness > 0.3) return "🔴"; // Strict
+        return "⚪"; // Neutral
+    };
+
+    const getStrictnessTooltip = (strictness?: number): string => {
+        if (strictness === undefined || strictness === null) return "No data";
+        if (strictness < -0.3) return `Lenient scorer (${strictness.toFixed(2)})`;
+        if (strictness > 0.3) return `Strict scorer (${strictness.toFixed(2)})`;
+        return `Neutral scorer (${strictness.toFixed(2)})`;
+    };
+
     const SortableHeader = ({ column, children, className }: { column: SortKey; children: React.ReactNode; className?: string }) => (
         <TableHead
             className={`cursor-pointer hover:bg-muted/50 ${className || ""}`}
@@ -109,6 +123,7 @@ export function PitchingTable({ stats, minIP = 0, minIPThreshold = 20, setMinIPT
                     <TableRow>
                         <SortableHeader column="player_name">Player</SortableHeader>
                         <SortableHeader column="team_name">Team</SortableHeader>
+                        <TableHead className="text-center" title="Scorer Strictness: 🟢=Lenient 🔴=Strict ⚪=Neutral">📊</TableHead>
                         <SortableHeader column="games" className="text-right">GP</SortableHeader>
                         <SortableHeader column="innings_pitched" className="text-right">IP</SortableHeader>
                         <SortableHeader column="hits_allowed" className="text-right">H</SortableHeader>
@@ -141,6 +156,9 @@ export function PitchingTable({ stats, minIP = 0, minIPThreshold = 20, setMinIPT
                                     )}
                                     <span className="truncate">{player.team_name}</span>
                                 </div>
+                            </TableCell>
+                            <TableCell className="text-center" title={getStrictnessTooltip(player.scorer_strictness)}>
+                                {formatStrictness(player.scorer_strictness)}
                             </TableCell>
                             <TableCell className="text-right">{player.games}</TableCell>
                             <TableCell className="text-right">{player.innings_pitched}</TableCell>

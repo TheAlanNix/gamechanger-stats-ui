@@ -64,6 +64,20 @@ export function BattingTable({ stats, minPA = 0, minPAThreshold = 20, setMinPATh
         return isNaN(num) ? "0.000" : num.toFixed(3);
     };
 
+    const formatStrictness = (strictness?: number): string => {
+        if (strictness === undefined || strictness === null) return "";
+        if (strictness < -0.3) return "🟢"; // Lenient
+        if (strictness > 0.3) return "🔴"; // Strict
+        return "⚪"; // Neutral
+    };
+
+    const getStrictnessTooltip = (strictness?: number): string => {
+        if (strictness === undefined || strictness === null) return "No data";
+        if (strictness < -0.3) return `Lenient scorer (${strictness.toFixed(2)})`;
+        if (strictness > 0.3) return `Strict scorer (${strictness.toFixed(2)})`;
+        return `Neutral scorer (${strictness.toFixed(2)})`;
+    };
+
     const SortableHeader = ({ column, children, className }: { column: SortKey; children: React.ReactNode; className?: string }) => (
         <TableHead
             className={`cursor-pointer hover:bg-muted/50 ${className || ""}`}
@@ -102,6 +116,7 @@ export function BattingTable({ stats, minPA = 0, minPAThreshold = 20, setMinPATh
                     <TableRow>
                         <SortableHeader column="player_name">Player</SortableHeader>
                         <SortableHeader column="team_name">Team</SortableHeader>
+                        <TableHead className="text-center" title="Scorer Strictness: 🟢=Lenient 🔴=Strict ⚪=Neutral">📊</TableHead>
                         <SortableHeader column="games" className="text-right">G</SortableHeader>
                         <SortableHeader column="at_bats" className="text-right">AB</SortableHeader>
                         <SortableHeader column="hits" className="text-right">H</SortableHeader>
@@ -112,8 +127,10 @@ export function BattingTable({ stats, minPA = 0, minPAThreshold = 20, setMinPATh
                         <SortableHeader column="walks" className="text-right">BB</SortableHeader>
                         <SortableHeader column="strikeouts" className="text-right">K</SortableHeader>
                         <SortableHeader column="batting_avg" className="text-right">AVG</SortableHeader>
+                        <SortableHeader column="normalized_batting_avg" className="text-right" title="Normalized AVG (adjusted for scorer)">nAVG</SortableHeader>
                         <SortableHeader column="on_base_pct" className="text-right">OBP</SortableHeader>
                         <SortableHeader column="slugging_pct" className="text-right">SLG</SortableHeader>
+                        <SortableHeader column="normalized_slugging_pct" className="text-right" title="Normalized SLG (adjusted for scorer)">nSLG</SortableHeader>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -135,6 +152,9 @@ export function BattingTable({ stats, minPA = 0, minPAThreshold = 20, setMinPATh
                                     <span className="truncate">{player.team_name}</span>
                                 </div>
                             </TableCell>
+                            <TableCell className="text-center" title={getStrictnessTooltip(player.scorer_strictness)}>
+                                {formatStrictness(player.scorer_strictness)}
+                            </TableCell>
                             <TableCell className="text-right">{player.games}</TableCell>
                             <TableCell className="text-right">{player.at_bats}</TableCell>
                             <TableCell className="text-right">{player.hits}</TableCell>
@@ -145,8 +165,10 @@ export function BattingTable({ stats, minPA = 0, minPAThreshold = 20, setMinPATh
                             <TableCell className="text-right">{player.walks}</TableCell>
                             <TableCell className="text-right">{player.strikeouts}</TableCell>
                             <TableCell className="text-right font-semibold">{formatDecimal(player.batting_avg)}</TableCell>
+                            <TableCell className="text-right font-semibold text-blue-600">{player.normalized_batting_avg ? formatDecimal(player.normalized_batting_avg) : "-"}</TableCell>
                             <TableCell className="text-right">{formatDecimal(player.on_base_pct)}</TableCell>
                             <TableCell className="text-right">{formatDecimal(player.slugging_pct)}</TableCell>
+                            <TableCell className="text-right text-blue-600">{player.normalized_slugging_pct ? formatDecimal(player.normalized_slugging_pct) : "-"}</TableCell>
                         </TableRow>
                     ))}
                 </TableBody>

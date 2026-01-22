@@ -19,6 +19,9 @@ export interface BattingStats {
     batting_avg: string;
     on_base_pct: string;
     slugging_pct: string;
+    scorer_strictness?: number;  // -1 to 1 scale, negative = lenient, positive = strict
+    normalized_batting_avg?: string;
+    normalized_slugging_pct?: string;
 }
 
 export interface PitchingStats {
@@ -41,6 +44,7 @@ export interface PitchingStats {
     strike_pct: string;
     wins: number;
     losses: number;
+    scorer_strictness?: number;  // -1 to 1 scale, negative = lenient, positive = strict
 }
 
 export interface FieldingStats {
@@ -58,6 +62,8 @@ export interface FieldingStats {
     errors: number;
     double_plays: number;
     fielding_pct: string;
+    scorer_strictness?: number;  // -1 to 1 scale, negative = lenient, positive = strict
+    normalized_fielding_pct?: string;
 }
 
 export interface TeamStats {

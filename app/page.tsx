@@ -36,6 +36,7 @@ export default function Home() {
     const [minPAThreshold, setMinPAThreshold] = useState(20);
     const [minIPThreshold, setMinIPThreshold] = useState(20);
     const [minFOThreshold, setMinFOThreshold] = useState(20);
+    const [normalizationFactor, setNormalizationFactor] = useState(50); // 0-100 scale
 
     // Token update dialog state
     const [showTokenDialog, setShowTokenDialog] = useState(false);
@@ -83,6 +84,40 @@ export default function Home() {
     const minPA = useMemo(() => (avgPlateAppearances * minPAThreshold) / 100, [avgPlateAppearances, minPAThreshold]);
     const minIP = useMemo(() => (avgInningsPitched * minIPThreshold) / 100, [avgInningsPitched, minIPThreshold]);
     const minFO = useMemo(() => (avgFieldingOpportunities * minFOThreshold) / 100, [avgFieldingOpportunities, minFOThreshold]);
+
+    // Helper function to normalize a stat based on strictness
+    const normalizeStat = (originalValue: number, strictness: number): number => {
+        if (originalValue === 0) return 0;
+        const factor = normalizationFactor / 100; // Convert 0-100 to 0-1
+        const adjustment = strictness * factor;
+        const normalized = originalValue * (1 + adjustment * 0.1); // Max 10% adjustment
+        return Math.max(0, normalized);
+    };
+
+    // Recalculate normalized stats when normalization factor changes
+    const normalizedBattingStats = useMemo(() => {
+        return battingStats.map(stat => {
+            const strictness = stat.scorer_strictness || 0;
+            const originalAvg = parseFloat(stat.batting_avg);
+            const originalSlg = parseFloat(stat.slugging_pct);
+            return {
+                ...stat,
+                normalized_batting_avg: Math.min(1.0, normalizeStat(originalAvg, strictness)).toFixed(3),
+                normalized_slugging_pct: normalizeStat(originalSlg, strictness).toFixed(3)
+            };
+        });
+    }, [battingStats, normalizationFactor]);
+
+    const normalizedFieldingStats = useMemo(() => {
+        return fieldingStats.map(stat => {
+            const strictness = stat.scorer_strictness || 0;
+            const originalFpct = parseFloat(stat.fielding_pct);
+            return {
+                ...stat,
+                normalized_fielding_pct: Math.min(1.0, normalizeStat(originalFpct, strictness)).toFixed(3)
+            };
+        });
+    }, [fieldingStats, normalizationFactor]);
 
     // Fetch organizations on mount
     useEffect(() => {
@@ -360,6 +395,37 @@ export default function Home() {
                                 <TabsTrigger value="fielding">Fielding</TabsTrigger>
                             </TabsList>
 
+                            {/* Normalization Factor Slider */}
+                            <Card className="bg-muted/30">
+                                <CardContent className="pt-6">
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="flex-1">
+                                            <Label className="text-sm font-medium mb-2 block">
+                                                Scorer Strictness Adjustment: {normalizationFactor}%
+                                            </Label>
+                                            <p className="text-xs text-muted-foreground mb-3">
+                                                Controls how much normalized stats are adjusted for scorer bias (0% = no adjustment, 100% = full adjustment)
+                                            </p>
+                                        </div>
+                                        <div className="w-64">
+                                            <div className="flex items-center gap-3">
+                                                <span className="text-xs text-muted-foreground">0%</span>
+                                                <input
+                                                    type="range"
+                                                    min="0"
+                                                    max="100"
+                                                    step="5"
+                                                    value={normalizationFactor}
+                                                    onChange={(e) => setNormalizationFactor(Number(e.target.value))}
+                                                    className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                                                />
+                                                <span className="text-xs text-muted-foreground">100%</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
                             <TabsContent value="leaderboards">
                                 <Card>
                                     <CardHeader>
@@ -403,7 +469,7 @@ export default function Home() {
                                     <CardContent>
                                         {battingStats && battingStats.length > 0 ? (
                                             <BattingTable
-                                                stats={battingStats}
+                                                stats={normalizedBattingStats}
                                                 minPA={minPA}
                                                 minPAThreshold={minPAThreshold}
                                                 setMinPAThreshold={setMinPAThreshold}
@@ -455,7 +521,7 @@ export default function Home() {
                                     <CardContent>
                                         {fieldingStats && fieldingStats.length > 0 ? (
                                             <FieldingTable
-                                                stats={fieldingStats}
+                                                stats={normalizedFieldingStats}
                                                 minFO={minFO}
                                                 minFOThreshold={minFOThreshold}
                                                 setMinFOThreshold={setMinFOThreshold}

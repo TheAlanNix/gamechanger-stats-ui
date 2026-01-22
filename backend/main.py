@@ -245,6 +245,129 @@ def format_innings_pitched(ip: float) -> str:
     return f"{whole_innings}.{outs}"
 
 
+def calculate_scorer_strictness(all_batting_stats, all_fielding_stats, raw_offense_stats):
+    """
+    Calculate separate scorer strictness for offense and defense.
+    
+    Returns two dictionaries:
+    1. offensive_strictness: Based on ROE (Reached on Error) and FC (Fielder's Choice) rates
+    2. defensive_strictness: Based on error rates
+    
+    Negative scores = lenient scoring
+    Positive scores = strict scoring
+    
+    Offensive strictness indicators:
+    - Low ROE + Low FC = Lenient (scorer calls hits instead of ROE/FC)
+    - High ROE + High FC = Strict (scorer properly calls ROE/FC)
+    
+    Defensive strictness indicators:
+    - Low errors = Lenient (scorer calls hits instead of errors)
+    - High errors = Strict (scorer properly calls errors)
+    """
+    from collections import defaultdict
+    import statistics
+    
+    # Track team offensive stats (ROE, FC, PA)
+    team_offense = defaultdict(lambda: {'roe': 0, 'fc': 0, 'pa': 0})
+    
+    for team_id, players in raw_offense_stats.items():
+        for player_id, player_stats in players.items():
+            roe = player_stats.get('ROE', 0)
+            fc = player_stats.get('FC', 0)
+            ab = player_stats.get('AB', 0)
+            bb = player_stats.get('BB', 0)
+            hbp = player_stats.get('HBP', 0)
+            sf = player_stats.get('SF', 0)
+            pa = ab + bb + hbp + sf
+            
+            team_offense[team_id]['roe'] += roe
+            team_offense[team_id]['fc'] += fc
+            team_offense[team_id]['pa'] += pa
+    
+    # Track team defensive stats (errors, chances)
+    team_defense = defaultdict(lambda: {'errors': 0, 'chances': 0})
+    
+    for stat in all_fielding_stats:
+        team_id = stat['team_id']
+        team_defense[team_id]['errors'] += stat['errors']
+        team_defense[team_id]['chances'] += (stat['putouts'] + stat['assists'] + stat['errors'])
+    
+    # Calculate offensive strictness
+    offensive_strictness = {}
+    
+    if len(team_offense) >= 2:
+        # Calculate rates per PA
+        team_off_rates = {}
+        for team_id, data in team_offense.items():
+            if data['pa'] >= 50:  # Minimum sample size
+                roe_rate = data['roe'] / data['pa']
+                fc_rate = data['fc'] / data['pa']
+                # Combined judgment call rate (higher = more strict)
+                team_off_rates[team_id] = roe_rate + fc_rate
+        
+        if len(team_off_rates) >= 2:
+            league_avg_rate = statistics.mean(team_off_rates.values())
+            league_std_rate = statistics.stdev(team_off_rates.values()) if len(team_off_rates) > 1 else 0.01
+            
+            for team_id, rate in team_off_rates.items():
+                z_score = (rate - league_avg_rate) / (league_std_rate or 0.01)
+                # High rate = strict, low rate = lenient
+                strictness = max(-1.0, min(1.0, z_score))
+                offensive_strictness[team_id] = round(strictness, 3)
+    
+    # Calculate defensive strictness
+    defensive_strictness = {}
+    
+    if len(team_defense) >= 2:
+        team_def_rates = {}
+        for team_id, data in team_defense.items():
+            if data['chances'] >= 50:  # Minimum sample size
+                error_rate = data['errors'] / data['chances']
+                team_def_rates[team_id] = error_rate
+        
+        if len(team_def_rates) >= 2:
+            league_avg_error_rate = statistics.mean(team_def_rates.values())
+            league_std_error_rate = statistics.stdev(team_def_rates.values()) if len(team_def_rates) > 1 else 0.01
+            
+            for team_id, error_rate in team_def_rates.items():
+                z_score = (error_rate - league_avg_error_rate) / (league_std_error_rate or 0.01)
+                # High error rate = strict, low error rate = lenient
+                strictness = max(-1.0, min(1.0, z_score))
+                defensive_strictness[team_id] = round(strictness, 3)
+    
+    return offensive_strictness, defensive_strictness
+
+
+def normalize_stat(original_value, strictness, normalization_factor=0.5):
+    """
+    Normalize a stat based on scorer strictness.
+    
+    Args:
+        original_value: The original stat value
+        strictness: The strictness score (-1 to 1)
+        normalization_factor: How much to adjust (0 to 1, default 0.5 = 50% correction)
+    
+    Returns:
+        Normalized stat value
+    
+    Logic:
+        - Strict scorer (positive strictness): Raw stats are artificially LOW → INCREASE normalized stats
+        - Lenient scorer (negative strictness): Raw stats are artificially HIGH → DECREASE normalized stats
+    """
+    if original_value == 0:
+        return 0
+    
+    # Adjust the stat based on strictness
+    # Positive strictness (strict scorer) → increase the stat
+    # Negative strictness (lenient scorer) → decrease the stat
+    adjustment = strictness * normalization_factor
+    normalized = original_value * (1 + adjustment * 0.1)  # Max 10% adjustment
+    
+    # Ensure normalized value doesn't exceed maximum possible values
+    # Batting avg and fielding pct can't exceed 1.000
+    return max(0, min(1.0, normalized))
+
+
 @app.get("/api/stats/{organization_id}")
 @cache_with_ttl(ttl_seconds=600)  # Cache for 10 minutes
 async def get_all_stats(organization_id: str):
@@ -278,6 +401,7 @@ async def get_all_stats(organization_id: str):
         fielding_stats = []
         team_stats = []
         team_info_map = {}
+        raw_offense_stats = {}  # Store raw offense stats by team for strictness calculation
         
         for team in teams_data:
             team_id = team.get('root_team_id')
@@ -316,6 +440,9 @@ async def get_all_stats(organization_id: str):
                 # Extract individual player stats
                 players_data = season_stats.get('stats_data', {}).get('players', {})
                 
+                # Store raw offense stats for this team
+                raw_offense_stats[team_id] = {}
+                
                 for player_id, player_data in players_data.items():
                     player_info = player_map.get(player_id, {})
                     player_name = f"{player_info.get('first_name', '')} {player_info.get('last_name', '')}".strip()
@@ -327,6 +454,9 @@ async def get_all_stats(organization_id: str):
                     # Process batting (offense) stats
                     offense_stats = player_data.get('stats', {}).get('offense', {})
                     if offense_stats:
+                        # Store raw offense stats for strictness calculation
+                        raw_offense_stats[team_id][player_id] = offense_stats
+                        
                         ab = offense_stats.get('AB', 0)
                         h = offense_stats.get('H', 0)
                         avg = (h / ab) if ab > 0 else 0
@@ -470,6 +600,42 @@ async def get_all_stats(organization_id: str):
                 })
         except Exception as e:
             print(f"Error getting team records: {e}")
+        
+        # Calculate separate scorer strictness for offense and defense
+        offensive_strictness, defensive_strictness = calculate_scorer_strictness(
+            batting_stats, fielding_stats, raw_offense_stats
+        )
+        
+        # Add strictness scores and normalized stats to player data
+        for stat in batting_stats:
+            team_id = stat['team_id']
+            strictness = offensive_strictness.get(team_id, 0)
+            stat['scorer_strictness'] = strictness
+            
+            # Calculate normalized stats
+            original_avg = float(stat['batting_avg'])
+            original_slg = float(stat['slugging_pct'])
+            
+            normalized_avg = normalize_stat(original_avg, strictness)
+            normalized_slg = normalize_stat(original_slg, strictness)
+            
+            stat['normalized_batting_avg'] = format_stat(normalized_avg)
+            stat['normalized_slugging_pct'] = format_stat(normalized_slg)
+        
+        for stat in fielding_stats:
+            team_id = stat['team_id']
+            strictness = defensive_strictness.get(team_id, 0)
+            stat['scorer_strictness'] = strictness
+            
+            # Calculate normalized fielding percentage
+            original_fpct = float(stat['fielding_pct'])
+            normalized_fpct = normalize_stat(original_fpct, strictness)
+            stat['normalized_fielding_pct'] = format_stat(normalized_fpct)
+        
+        for stat in pitching_stats:
+            team_id = stat['team_id']
+            strictness = defensive_strictness.get(team_id, 0)
+            stat['scorer_strictness'] = strictness
         
         return {
             "batting": batting_stats,

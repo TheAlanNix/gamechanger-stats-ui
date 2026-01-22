@@ -64,6 +64,20 @@ export function FieldingTable({ stats, minFO = 0, minFOThreshold = 20, setMinFOT
         return isNaN(num) ? "0.000" : num.toFixed(3);
     };
 
+    const formatStrictness = (strictness?: number): string => {
+        if (strictness === undefined || strictness === null) return "";
+        if (strictness < -0.3) return "🟢"; // Lenient
+        if (strictness > 0.3) return "🔴"; // Strict
+        return "⚪"; // Neutral
+    };
+
+    const getStrictnessTooltip = (strictness?: number): string => {
+        if (strictness === undefined || strictness === null) return "No data";
+        if (strictness < -0.3) return `Lenient scorer (${strictness.toFixed(2)})`;
+        if (strictness > 0.3) return `Strict scorer (${strictness.toFixed(2)})`;
+        return `Neutral scorer (${strictness.toFixed(2)})`;
+    };
+
     const SortableHeader = ({ column, children, className }: { column: SortKey; children: React.ReactNode; className?: string }) => (
         <TableHead
             className={`cursor-pointer hover:bg-muted/50 ${className || ""}`}
@@ -102,12 +116,14 @@ export function FieldingTable({ stats, minFO = 0, minFOThreshold = 20, setMinFOT
                     <TableRow>
                         <SortableHeader column="player_name">Player</SortableHeader>
                         <SortableHeader column="team_name">Team</SortableHeader>
+                        <TableHead className="text-center" title="Scorer Strictness: 🟢=Lenient 🔴=Strict ⚪=Neutral">📊</TableHead>
                         <SortableHeader column="games" className="text-right">G</SortableHeader>
                         <SortableHeader column="putouts" className="text-right">PO</SortableHeader>
                         <SortableHeader column="assists" className="text-right">A</SortableHeader>
                         <SortableHeader column="errors" className="text-right">E</SortableHeader>
                         <SortableHeader column="double_plays" className="text-right">DP</SortableHeader>
                         <SortableHeader column="fielding_pct" className="text-right">FLD%</SortableHeader>
+                        <SortableHeader column="normalized_fielding_pct" className="text-right" title="Normalized FLD% (adjusted for scorer)">nFLD%</SortableHeader>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -129,12 +145,16 @@ export function FieldingTable({ stats, minFO = 0, minFOThreshold = 20, setMinFOT
                                     <span className="truncate">{player.team_name}</span>
                                 </div>
                             </TableCell>
+                            <TableCell className="text-center" title={getStrictnessTooltip(player.scorer_strictness)}>
+                                {formatStrictness(player.scorer_strictness)}
+                            </TableCell>
                             <TableCell className="text-right py-2">{player.games}</TableCell>
                             <TableCell className="text-right">{player.putouts}</TableCell>
                             <TableCell className="text-right">{player.assists}</TableCell>
                             <TableCell className="text-right">{player.errors}</TableCell>
                             <TableCell className="text-right">{player.double_plays}</TableCell>
                             <TableCell className="text-right font-semibold">{formatDecimal(player.fielding_pct)}</TableCell>
+                            <TableCell className="text-right text-blue-600">{player.normalized_fielding_pct ? formatDecimal(player.normalized_fielding_pct) : "-"}</TableCell>
                         </TableRow>
                     ))}
                 </TableBody>
